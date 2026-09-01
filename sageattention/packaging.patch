@@ -1,0 +1,136 @@
+diff --git a/NOTICE b/NOTICE
+new file mode 100644
+index 0000000..863a99a
+--- /dev/null
++++ b/NOTICE
+@@ -0,0 +1,10 @@
++Comfy Kitchen SageAttention binary distribution
++
++This distribution packages SageAttention 2.2.0 from
++https://github.com/thu-ml/SageAttention at commit
++eb615cf6cf4d221338033340ee2de1c37fbdba4a.
++
++Copyright (c) 2024 SageAttention team.
++Licensed under the Apache License, Version 2.0. See LICENSE.
++
++The pinned upstream source does not contain a NOTICE file.
+diff --git a/sageattention/__init__.py b/sageattention/__init__.py
+index 73b0256..96d34a5 100644
+--- a/sageattention/__init__.py
++++ b/sageattention/__init__.py
+@@ -5 +5,2 @@ from .core import sageattn_qk_int8_pv_fp8_cuda
+-from .core import sageattn_qk_int8_pv_fp8_cuda_sm90
+\ No newline at end of file
++from .core import sageattn_qk_int8_pv_fp8_cuda_sm90
++from ._version import __distribution__, __distribution_version__, __source_commit__, __version__
+diff --git a/sageattention/_comfy_kitchen_provenance.json b/sageattention/_comfy_kitchen_provenance.json
+new file mode 100644
+index 0000000..2f6ad96
+--- /dev/null
++++ b/sageattention/_comfy_kitchen_provenance.json
+@@ -0,0 +1,12 @@
++{
++  "distribution": "comfy-kitchen-sageattention",
++  "distribution_version": "2.2.0.post1",
++  "upstream_commit": "eb615cf6cf4d221338033340ee2de1c37fbdba4a",
++  "upstream_source_sha256": "2c8232be47d35d20f095b1e38a052c6aa7b79dfd8ae4ab733d4df99c301ca7d0",
++  "upstream_tag": "v2.2.0",
++  "upstream_version": "2.2.0",
++  "python": "3.12",
++  "torch": "2.13.0",
++  "cuda": "13.0",
++  "source_date_epoch": 1761613216
++}
+diff --git a/sageattention/_version.py b/sageattention/_version.py
+new file mode 100644
+index 0000000..376f309
+--- /dev/null
++++ b/sageattention/_version.py
+@@ -0,0 +1,4 @@
++__version__ = "2.2.0"
++__source_commit__ = "eb615cf6cf4d221338033340ee2de1c37fbdba4a"
++__distribution__ = "comfy-kitchen-sageattention"
++__distribution_version__ = "2.2.0.post1"
+diff --git a/setup.py b/setup.py
+index ab569e9..3060f2f 100644
+--- a/setup.py
++++ b/setup.py
+@@ -18 +17,0 @@ import os
+-import sys
+@@ -19,0 +19 @@ import subprocess
++import sys
+@@ -21,0 +22 @@ import warnings
++from pathlib import Path
+@@ -49 +50,5 @@ if not SKIP_CUDA_BUILD:
+-    CXX_FLAGS = ["-g", "-O3", "-fopenmp", "-lgomp", "-std=c++17", "-DENABLE_BF16"]
++    CXX_FLAGS = (
++        ["/O2", "/std:c++17", "/DENABLE_BF16"]
++        if sys.platform == "win32"
++        else ["-O3", "-std=c++17", "-DENABLE_BF16"]
++    )
+@@ -69,3 +74,4 @@ if not SKIP_CUDA_BUILD:
+-    ABI = 1 if torch._C._GLIBCXX_USE_CXX11_ABI else 0
+-    CXX_FLAGS += [f"-D_GLIBCXX_USE_CXX11_ABI={ABI}"]
+-    NVCC_FLAGS += [f"-D_GLIBCXX_USE_CXX11_ABI={ABI}"]
++    if sys.platform != "win32":
++        ABI = 1 if torch._C._GLIBCXX_USE_CXX11_ABI else 0
++        CXX_FLAGS += [f"-D_GLIBCXX_USE_CXX11_ABI={ABI}"]
++        NVCC_FLAGS += [f"-D_GLIBCXX_USE_CXX11_ABI={ABI}"]
+@@ -82 +88,2 @@ if not SKIP_CUDA_BUILD:
+-        nvcc_output = subprocess.check_output([cuda_dir + "/bin/nvcc", "-V"],
++        nvcc = Path(cuda_dir) / "bin" / ("nvcc.exe" if sys.platform == "win32" else "nvcc")
++        nvcc_output = subprocess.check_output([str(nvcc), "-V"],
+@@ -140 +147,3 @@ if not SKIP_CUDA_BUILD:
+-    # Add target compute capabilities to NVCC flags.
++    # Keep architecture flags per extension. The Hopper source uses WGMMA
++    # instructions that ptxas cannot compile for the other target families.
++    ARCH_FLAGS = {}
+@@ -159 +168 @@ if not SKIP_CUDA_BUILD:
+-        NVCC_FLAGS += ["-gencode", f"arch=compute_{num},code=sm_{num}"]
++        flags = ["-gencode", f"arch=compute_{num},code=sm_{num}"]
+@@ -161 +170,9 @@ if not SKIP_CUDA_BUILD:
+-            NVCC_FLAGS += ["-gencode", f"arch=compute_{num},code=compute_{num}"]
++            flags += ["-gencode", f"arch=compute_{num},code=compute_{num}"]
++        ARCH_FLAGS[num] = flags
++
++    def nvcc_flags(*architectures: str) -> list[str]:
++        return NVCC_FLAGS + [
++            flag
++            for architecture in architectures
++            for flag in ARCH_FLAGS.get(architecture, ())
++        ]
+@@ -174 +191,4 @@ if not SKIP_CUDA_BUILD:
+-                extra_compile_args={"cxx": CXX_FLAGS, "nvcc": NVCC_FLAGS},
++                extra_compile_args={
++                    "cxx": CXX_FLAGS,
++                    "nvcc": nvcc_flags("80", "86", "89", "90a", "120"),
++                },
+@@ -192 +212 @@ if not SKIP_CUDA_BUILD:
+-                extra_compile_args={"cxx": CXX_FLAGS, "nvcc": NVCC_FLAGS},
++                extra_compile_args={"cxx": CXX_FLAGS, "nvcc": nvcc_flags("89", "90a", "120")},
+@@ -204,2 +224,2 @@ if not SKIP_CUDA_BUILD:
+-                extra_compile_args={"cxx": CXX_FLAGS, "nvcc": NVCC_FLAGS},
+-                extra_link_args=['-lcuda'],
++                extra_compile_args={"cxx": CXX_FLAGS, "nvcc": nvcc_flags("90a")},
++                extra_link_args=["cuda.lib" if sys.platform == "win32" else "-lcuda"],
+@@ -213 +233,4 @@ if not SKIP_CUDA_BUILD:
+-            extra_compile_args={"cxx": CXX_FLAGS, "nvcc": NVCC_FLAGS},
++            extra_compile_args={
++                "cxx": CXX_FLAGS,
++                "nvcc": nvcc_flags("80", "86", "89", "90a", "120"),
++            },
+@@ -265,2 +288,2 @@ setup(
+-    name='sageattention',
+-    version='2.2.0',
++    name='comfy-kitchen-sageattention',
++    version='2.2.0.post1',
+@@ -274 +297,8 @@ setup(
+-    python_requires='>=3.9',
++    package_data={"sageattention": ["_comfy_kitchen_provenance.json"]},
++    python_requires='>=3.12,<3.13',
++    install_requires=[
++        "torch==2.13.0",
++        "triton==3.7.1; sys_platform != 'win32'",
++        "triton-windows==3.7.1.post27; sys_platform == 'win32'",
++    ],
++    license_files=["LICENSE", "NOTICE"],
