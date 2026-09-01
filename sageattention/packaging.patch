@@ -127,10 +127,13 @@ index ab569e9..3060f2f 100644
 @@ -49 +50,5 @@ if not SKIP_CUDA_BUILD:
 -    CXX_FLAGS = ["-g", "-O3", "-fopenmp", "-lgomp", "-std=c++17", "-DENABLE_BF16"]
 +    CXX_FLAGS = (
-+        ["/O2", "/std:c++17", "/DENABLE_BF16"]
++        ["/O2", "/std:c++20", "/DENABLE_BF16"]
 +        if sys.platform == "win32"
-+        else ["-O3", "-std=c++17", "-DENABLE_BF16"]
++        else ["-O3", "-std=c++20", "-DENABLE_BF16"]
 +    )
+@@ -52 +57 @@ if not SKIP_CUDA_BUILD:
+-        "-std=c++17",
++        "-std=c++20",
 @@ -69,3 +74,4 @@ if not SKIP_CUDA_BUILD:
 -    ABI = 1 if torch._C._GLIBCXX_USE_CXX11_ABI else 0
 -    CXX_FLAGS += [f"-D_GLIBCXX_USE_CXX11_ABI={ABI}"]
