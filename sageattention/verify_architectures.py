@@ -39,7 +39,7 @@ def verify_architectures(cuobjdump: Path) -> None:
             capture_output=True,
             text=True,
         )
-        actual = {int(value) for value in re.findall(r"\.sm_(\d+)\.cubin", result.stdout)}
+        actual = {int(value) for value in re.findall(r"\.sm_(\d+)(?:a)?\.cubin", result.stdout)}
         if actual != expected:
             raise RuntimeError(
                 f"{stem} has architectures {sorted(actual)}, expected {sorted(expected)}"
