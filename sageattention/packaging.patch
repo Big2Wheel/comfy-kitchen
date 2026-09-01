@@ -25,10 +25,10 @@ index 73b0256..96d34a5 100644
 +from ._version import __distribution__, __distribution_version__, __source_commit__, __version__
 diff --git a/sageattention/_comfy_kitchen_provenance.json b/sageattention/_comfy_kitchen_provenance.json
 new file mode 100644
-index 0000000..2f6ad96
+index 0000000..1903ec5
 --- /dev/null
 +++ b/sageattention/_comfy_kitchen_provenance.json
-@@ -0,0 +1,12 @@
+@@ -0,0 +1,18 @@
 +{
 +  "distribution": "comfy-kitchen-sageattention",
 +  "distribution_version": "2.2.0.post1",
@@ -39,6 +39,12 @@ index 0000000..2f6ad96
 +  "python": "3.12",
 +  "torch": "2.13.0",
 +  "cuda": "13.0",
++  "build_tools": {
++    "setuptools": "78.1.0",
++    "wheel": "0.45.1",
++    "packaging": "25.0",
++    "ninja": "1.13.2"
++  },
 +  "source_date_epoch": 1761613216
 +}
 diff --git a/sageattention/_version.py b/sageattention/_version.py

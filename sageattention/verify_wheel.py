@@ -93,6 +93,7 @@ def verify_wheel(path: Path, platform: str) -> None:
             "python": build["python"],
             "torch": build["torch"],
             "cuda": build["cuda"],
+            "build_tools": build["build_tools"],
             "source_date_epoch": build["source_date_epoch"],
         }
         if provenance != expected_provenance:
