@@ -27,6 +27,7 @@ def _single(names: list[str], suffix: str) -> str:
 def verify_wheel(path: Path, platform: str) -> None:
     distribution = MANIFEST["distribution"]
     upstream = MANIFEST["upstream"]
+    backport = MANIFEST["backport"]
     build = MANIFEST["build"]
     normalized = distribution["name"].replace("-", "_")
     dist_info = f"{normalized}-{distribution['version']}.dist-info/"
@@ -90,6 +91,7 @@ def verify_wheel(path: Path, platform: str) -> None:
             "upstream_source_sha256": upstream["archive_sha256"],
             "upstream_tag": upstream["tag"],
             "upstream_version": upstream["version"],
+            "backport_commit": backport["commit"],
             "python": build["python"],
             "torch": build["torch"],
             "cuda": build["cuda"],
@@ -98,6 +100,11 @@ def verify_wheel(path: Path, platform: str) -> None:
         }
         if provenance != expected_provenance:
             raise ValueError(f"wheel provenance does not match source.json: {provenance}")
+
+        removed_modules = set(backport["removed_files"])
+        unexpected_modules = [name for name in names if name in removed_modules]
+        if unexpected_modules:
+            raise ValueError(f"wheel contains removed compile wrappers: {unexpected_modules}")
 
         license_names = [name for name in names if name.startswith(dist_info)]
         if not any(name.endswith("/LICENSE") for name in license_names):

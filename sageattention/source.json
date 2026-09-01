@@ -14,6 +14,15 @@
     "license": "Apache-2.0",
     "notice_file": false
   },
+  "backport": {
+    "commit": "e5bf6ee147e00107cb65042787d3a34b2e014c8c",
+    "description": "Restore direct native extension calls after incorrect SM90 output reports",
+    "removed_files": [
+      "sageattention/sm80_compile.py",
+      "sageattention/sm89_compile.py",
+      "sageattention/sm90_compile.py"
+    ]
+  },
   "build": {
     "python": "3.12",
     "torch": "2.13.0",
@@ -31,7 +40,7 @@
     "extension_architectures": {
       "_fused": [80, 86, 89, 90, 120],
       "_qattn_sm80": [80, 86, 89, 90, 120],
-      "_qattn_sm89": [89, 90, 120],
+      "_qattn_sm89": [89, 120],
       "_qattn_sm90": [90]
     }
   }

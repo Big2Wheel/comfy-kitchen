@@ -12,6 +12,12 @@ the upstream Apache-2.0 license, attribution, and machine-readable provenance.
 The build uses the pinned source archive timestamp for deterministic wheel
 timestamps. The pinned upstream source has no NOTICE file.
 
+The managed patch includes upstream commit
+`e5bf6ee147e00107cb65042787d3a34b2e014c8c`, which restores direct native
+extension calls and removes the compile wrappers associated with incorrect
+SM90 output reports. The Linux build also omits upstream debug and OpenMP
+flags because the extension sources do not use OpenMP.
+
 The first binary line supports Python 3.12, Torch 2.13.0, CUDA 13.0, Linux
 x86_64, and Windows x86_64. Its compiled arms cover the upstream 2.2.0 dispatch
 set: SM80, SM86, SM89, SM90, and SM120. Triton 3.7.1 is installed as a runtime

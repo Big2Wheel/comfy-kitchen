@@ -94,6 +94,11 @@ def prepare_source(destination: Path, archive: Path | None = None) -> None:
 
         source = extracted / expected_root
         subprocess.run(["git", "apply", "--unidiff-zero", str(PATCH)], cwd=source, check=True)
+        for relative_path in manifest["backport"]["removed_files"]:
+            backported_removal = source / relative_path
+            if not backported_removal.is_file():
+                raise FileNotFoundError(f"backport removal is missing: {relative_path}")
+            backported_removal.unlink()
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.move(source, destination)
 
