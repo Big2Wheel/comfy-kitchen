@@ -55,7 +55,8 @@ jobs:
             dnf clean all
             dnf install -y \
               cuda-nvcc-13-0 cuda-cuobjdump-13-0 \
-              cuda-cudart-devel-13-0 cuda-driver-devel-13-0
+              cuda-cudart-devel-13-0 cuda-driver-devel-13-0 \
+              libcusparse-devel-13-0
             /usr/local/cuda-13.0/bin/nvcc --version
           CIBW_ENVIRONMENT_LINUX: >-
             CUDA_HOME=/usr/local/cuda-13.0
