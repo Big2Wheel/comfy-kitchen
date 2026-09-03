@@ -66,6 +66,7 @@ class TestBackendSystem:
             assert ascend_caps == [
                 "dequantize_int8_simple",
                 "dequantize_int8_simple_dtype",
+                "int8_linear",
                 "quantize_int8_rowwise",
                 "quantize_int8_tensorwise",
             ]
