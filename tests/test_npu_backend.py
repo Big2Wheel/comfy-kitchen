@@ -5,6 +5,8 @@ import comfy_kitchen as ck
 from comfy_kitchen.exceptions import NoCapableBackendError
 from comfy_kitchen.registry import registry
 
+from .conftest import get_supported_devices
+
 torch_npu = pytest.importorskip("torch_npu")
 
 pytestmark = pytest.mark.skipif(not torch.npu.is_available(), reason="Ascend NPU required")
@@ -97,6 +99,10 @@ def test_npu_is_selected_automatically(npu_device):
         "quantize_int8_rowwise", {"x": x, "stochastic_rounding": 0}
     )
     assert selected == "npu"
+
+
+def test_get_supported_devices_includes_npu():
+    assert "npu" in get_supported_devices("quantize_int8_rowwise")
 
 
 def test_npu_declines_unsupported_calls(npu_device):

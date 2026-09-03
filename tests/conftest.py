@@ -125,7 +125,7 @@ def get_supported_devices(func_name: str) -> set[str]:
     devices = set()
     backends = ck.list_backends()
 
-    for backend_name in ["cuda", "triton", "eager"]:
+    for backend_name in ["npu", "cuda", "triton", "eager"]:
         if not backends.get(backend_name, {}).get("available", False):
             continue
 
