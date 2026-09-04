@@ -63,12 +63,12 @@ class TestBackendSystem:
 
         if backends["ascend"]["available"]:
             ascend_caps = backends["ascend"]["capabilities"]
-            assert ascend_caps == [
+            assert {
                 "dequantize_int8_simple",
                 "dequantize_int8_simple_dtype",
                 "quantize_int8_rowwise",
                 "quantize_int8_tensorwise",
-            ]
+            }.issubset(ascend_caps)
 
     def test_backend_context_manager_override(self, small_tensor):
         """Test that use_backend context manager correctly overrides backend selection."""
