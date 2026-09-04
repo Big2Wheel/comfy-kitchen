@@ -2,12 +2,16 @@ import pytest
 import torch
 
 import comfy_kitchen as ck
-from comfy_kitchen.exceptions import NoCapableBackendError
+from comfy_kitchen.exceptions import BackendNotImplementedError, NoCapableBackendError
 from comfy_kitchen.registry import registry
 
 from .conftest import get_supported_devices
 
 torch_npu = pytest.importorskip("torch_npu")
+requires_npu_quant_matmul = pytest.mark.skipif(
+    not hasattr(torch_npu, "npu_quant_matmul"),
+    reason="torch-npu with npu_quant_matmul is required",
+)
 
 pytestmark = pytest.mark.skipif(
     not torch.npu.is_available(), reason="Huawei Ascend device required"
@@ -102,15 +106,20 @@ def test_ascend_is_selected_automatically(ascend_device):
     )
     assert selected == "ascend"
 
-    selected = registry.get_capable_backend(
-        "int8_linear",
-        {
-            "x": x,
-            "weight": torch.ones(16, 32, device=ascend_device, dtype=torch.int8),
-            "weight_scale": torch.ones(16, device=ascend_device),
-            "out_dtype": torch.bfloat16,
-        },
-    )
+    linear_call = {
+        "x": x,
+        "weight": torch.ones(16, 32, device=ascend_device, dtype=torch.int8),
+        "weight_scale": torch.ones(16, device=ascend_device),
+        "out_dtype": torch.bfloat16,
+    }
+    if not hasattr(torch_npu, "npu_quant_matmul"):
+        with pytest.raises(BackendNotImplementedError):
+            registry.get_implementation(
+                "int8_linear", backend="ascend", kwargs=linear_call
+            )
+        return
+
+    selected = registry.get_capable_backend("int8_linear", linear_call)
     assert selected == "ascend"
 
 
@@ -158,6 +167,7 @@ def _int8_linear_reference(x, weight, weight_scale, bias=None):
     return output
 
 
+@requires_npu_quant_matmul
 @pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])
 @pytest.mark.parametrize("with_bias", [False, True])
 @pytest.mark.parametrize("scalar_weight_scale", [False, True])
@@ -179,6 +189,7 @@ def test_int8_linear_matches_reference(ascend_device, dtype, with_bias, scalar_w
     torch.testing.assert_close(actual, expected, rtol=2e-2, atol=2e-2)
 
 
+@requires_npu_quant_matmul
 def test_int8_linear_supports_batched_input(ascend_device):
     x = torch.randn(2, 3, 128, device=ascend_device, dtype=torch.bfloat16)
     weight = torch.randint(-127, 128, (64, 128), device=ascend_device, dtype=torch.int8)
@@ -191,6 +202,7 @@ def test_int8_linear_supports_batched_input(ascend_device):
     assert output.device.type == "npu"
 
 
+@requires_npu_quant_matmul
 @pytest.mark.parametrize("input_act", [None, "gelu_tanh", "swiglu"])
 def test_convrot_int8_linear_matches_reference(ascend_device, input_act):
     from comfy_kitchen.backends._activations import apply_input_act
@@ -222,6 +234,7 @@ def test_convrot_int8_linear_matches_reference(ascend_device, input_act):
     torch.testing.assert_close(actual, expected, rtol=2e-2, atol=2e-2)
 
 
+@requires_npu_quant_matmul
 @pytest.mark.parametrize(
     "kwargs,failed_param",
     [
