@@ -4,7 +4,7 @@ Fast kernel library for Diffusion inference with multiple compute backends.
 
 ## Backend Capabilities Matrix
 
-| Function                    | eager | cuda | triton | hip | npu |
+| Function                    | eager | cuda | triton | hip | ascend |
 |-----------------------------|-------|------|--------|-----|-----|
 | `quantize_per_tensor_fp8`   | ✓     | ✓    | ✓      | ✓   |     |
 | `dequantize_per_tensor_fp8` | ✓     | ✓    | ✓      | ✓   |     |
@@ -47,16 +47,17 @@ Fast kernel library for Diffusion inference with multiple compute backends.
 Each of the eight rope entries also has an in-place form (`apply_rope_`,
 `rms_rope_split_half1_`, ...) with the same backend coverage as the row above.
 
-## Ascend NPU backend
+## Huawei Ascend backend
 
-The optional `npu` backend uses torch-npu operators on Ascend hardware. It is
-registered only when torch-npu and an NPU device are available, so comfy-kitchen
-keeps importing normally on CPU, CUDA, HIP, and XPU installations.
+The optional `ascend` backend uses torch-npu operators on Huawei Ascend NPU
+hardware. It is registered only when torch-npu and an Ascend device are
+available, so comfy-kitchen keeps importing normally on CPU, CUDA, HIP, and XPU
+installations. The PyTorch device type remains `npu`, as defined by torch-npu.
 
 The initial backend supports:
 
 - `quantize_int8_rowwise` through `torch_npu.npu_dynamic_quant`
-- `quantize_int8_tensorwise` through NPU reduction operators and
+- `quantize_int8_tensorwise` through Ascend reduction operators and
   `torch_npu.npu_quantize`
 - `dequantize_int8_simple` and `dequantize_int8_simple_dtype` on device
 
