@@ -2,6 +2,7 @@ import pytest
 import torch
 
 import comfy_kitchen as ck
+from comfy_kitchen.backends import ascend as ascend_backend
 from comfy_kitchen.backends.eager import rope as eager_rope
 from comfy_kitchen.registry import registry
 
@@ -16,6 +17,12 @@ pytestmark = pytest.mark.skipif(
 def ascend_device():
     torch.npu.set_device("npu:0")
     return torch.device("npu:0")
+
+
+def test_required_operator_parameters_are_available():
+    assert ascend_backend._operator_has_parameter(torch_npu.npu_quantize, "div_mode")
+    assert ascend_backend._operator_has_parameter(torch_npu.npu_rotary_mul, "rotary_mode")
+    assert not ascend_backend._operator_has_parameter(object(), "rotary_mode")
 
 
 def _shapes(layout, head_dim=64, *, batch=1):
