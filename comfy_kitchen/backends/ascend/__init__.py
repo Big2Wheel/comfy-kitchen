@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 Comfy Org. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-"""Ascend NPU backend.
+"""Huawei Ascend NPU backend.
 
 The backend is intentionally optional: importing :mod:`comfy_kitchen` must not
 require torch-npu on CPU, CUDA, HIP, or XPU installations.
@@ -25,24 +25,24 @@ __all__ = [
     "quantize_int8_tensorwise",
 ]
 
-_NPU_AVAILABLE = False
-_NPU_ERROR: str | None = None
+_ASCEND_AVAILABLE = False
+_ASCEND_ERROR: str | None = None
 
 try:
     import torch_npu
 
     if not torch.npu.is_available():
-        _NPU_ERROR = "torch-npu is installed, but no Ascend NPU is available"
+        _ASCEND_ERROR = "torch-npu is installed, but no Huawei Ascend device is available"
     elif not hasattr(torch_npu, "npu_dynamic_quant"):
-        _NPU_ERROR = "torch-npu does not provide npu_dynamic_quant"
+        _ASCEND_ERROR = "torch-npu does not provide npu_dynamic_quant"
     elif not hasattr(torch_npu, "npu_quantize"):
-        _NPU_ERROR = "torch-npu does not provide npu_quantize"
+        _ASCEND_ERROR = "torch-npu does not provide npu_quantize"
     else:
-        _NPU_AVAILABLE = True
+        _ASCEND_AVAILABLE = True
 except ImportError as exc:
-    _NPU_ERROR = f"torch-npu is not installed: {exc}"
+    _ASCEND_ERROR = f"torch-npu is not installed: {exc}"
 except Exception as exc:
-    _NPU_ERROR = f"torch-npu initialization failed: {exc}"
+    _ASCEND_ERROR = f"torch-npu initialization failed: {exc}"
 
 
 _DTYPE_CODE_TO_DTYPE = {
@@ -94,7 +94,7 @@ def quantize_int8_tensorwise(
     scale: torch.Tensor | float | str | None = None,
     stochastic_rounding: int | None = 0,
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    """Quantize an NPU tensor using one float32 scale for the whole tensor."""
+    """Quantize an Ascend tensor using one float32 scale for the whole tensor."""
     del stochastic_rounding
 
     if scale is None or (isinstance(scale, str) and scale == "recalculate"):
@@ -117,14 +117,14 @@ def quantize_int8_rowwise(
     x: torch.Tensor,
     stochastic_rounding: int | None = 0,
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    """Quantize an NPU tensor per row using ``npu_dynamic_quant``."""
+    """Quantize an Ascend tensor per row using ``npu_dynamic_quant``."""
     del stochastic_rounding
     quantized, scale = torch_npu.npu_dynamic_quant(x)
     return quantized, _safe_scale(scale).unsqueeze(-1)
 
 
 def dequantize_int8_simple(q: torch.Tensor, scale: torch.Tensor) -> torch.Tensor:
-    """Dequantize INT8 data on NPU without transferring it to the host."""
+    """Dequantize INT8 data on Ascend without transferring it to the host."""
     return q.float() * scale
 
 
@@ -136,26 +136,26 @@ def dequantize_int8_simple_dtype(
 
 
 def _build_constraints() -> dict[str, FunctionConstraints]:
-    npu_devices = frozenset({"npu"})
-    npu_floats = frozenset({torch.float16, torch.bfloat16})
+    ascend_devices = frozenset({"npu"})
+    ascend_floats = frozenset({torch.float16, torch.bfloat16})
     scale_values = frozenset({torch.float16, torch.bfloat16, torch.float32, float, int, str})
 
     return {
         "quantize_int8_tensorwise": FunctionConstraints(
             params={
-                "x": ParamConstraint(dtypes=npu_floats),
+                "x": ParamConstraint(dtypes=ascend_floats),
                 "scale": ParamConstraint(dtypes=scale_values),
                 "stochastic_rounding": ParamConstraint(dtypes=frozenset({int})),
             },
-            default_devices=npu_devices,
+            default_devices=ascend_devices,
             call_rules=(_validate_tensorwise_scale,),
         ),
         "quantize_int8_rowwise": FunctionConstraints(
             params={
-                "x": ParamConstraint(dtypes=npu_floats, shape_rules=(MinDims(2),)),
+                "x": ParamConstraint(dtypes=ascend_floats, shape_rules=(MinDims(2),)),
                 "stochastic_rounding": ParamConstraint(dtypes=frozenset({int})),
             },
-            default_devices=npu_devices,
+            default_devices=ascend_devices,
             call_rules=(_validate_deterministic_quantization,),
         ),
         "dequantize_int8_simple": FunctionConstraints(
@@ -163,7 +163,7 @@ def _build_constraints() -> dict[str, FunctionConstraints]:
                 "q": ParamConstraint(dtypes=frozenset({torch.int8})),
                 "scale": ParamConstraint(dtypes=frozenset({torch.float32})),
             },
-            default_devices=npu_devices,
+            default_devices=ascend_devices,
         ),
         "dequantize_int8_simple_dtype": FunctionConstraints(
             params={
@@ -171,17 +171,17 @@ def _build_constraints() -> dict[str, FunctionConstraints]:
                 "scale": ParamConstraint(dtypes=frozenset({torch.float32})),
                 "output_dtype_code": ParamConstraint(dtypes=frozenset({int})),
             },
-            default_devices=npu_devices,
+            default_devices=ascend_devices,
             call_rules=(_validate_output_dtype,),
         ),
     }
 
 
-if _NPU_AVAILABLE:
+if _ASCEND_AVAILABLE:
     registry.register(
-        name="npu",
+        name="ascend",
         module=__import__(__name__, fromlist=__all__),
         capabilities=_build_constraints(),
     )
 else:
-    registry.mark_unavailable("npu", _NPU_ERROR or "Ascend NPU backend is unavailable")
+    registry.mark_unavailable("ascend", _ASCEND_ERROR or "Huawei Ascend backend is unavailable")

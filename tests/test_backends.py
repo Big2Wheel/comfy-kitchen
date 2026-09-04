@@ -19,7 +19,7 @@ class TestBackendSystem:
         assert "eager" in backends
         assert "cuda" in backends
         assert "triton" in backends
-        assert "npu" in backends
+        assert "ascend" in backends
 
         # Eager backend should always be available
         assert backends["eager"]["available"] is True
@@ -61,9 +61,9 @@ class TestBackendSystem:
             cuda_caps = backends["cuda"]["capabilities"]
             assert "int8_linear" in cuda_caps
 
-        if backends["npu"]["available"]:
-            npu_caps = backends["npu"]["capabilities"]
-            assert npu_caps == [
+        if backends["ascend"]["available"]:
+            ascend_caps = backends["ascend"]["capabilities"]
+            assert ascend_caps == [
                 "dequantize_int8_simple",
                 "dequantize_int8_simple_dtype",
                 "quantize_int8_rowwise",
