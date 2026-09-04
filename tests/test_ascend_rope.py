@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 import pytest
 import torch
 
@@ -19,9 +21,30 @@ def ascend_device():
     return torch.device("npu:0")
 
 
-def test_required_operator_parameters_are_available():
+@pytest.mark.skipif(
+    not ascend_backend._ASCEND_QUANT_AVAILABLE,
+    reason="compatible Ascend quantization operators required",
+)
+def test_required_quantization_parameter_is_available():
     assert ascend_backend._operator_has_parameter(torch_npu.npu_quantize, "div_mode")
+
+
+@pytest.mark.skipif(
+    not ascend_backend._ASCEND_ROPE_AVAILABLE,
+    reason="compatible Ascend rotary operator required",
+)
+def test_required_rotary_parameter_is_available():
     assert ascend_backend._operator_has_parameter(torch_npu.npu_rotary_mul, "rotary_mode")
+
+
+def test_operator_parameter_detection_handles_older_schemas():
+    arguments = [SimpleNamespace(name="input"), SimpleNamespace(name="r1")]
+    operator = SimpleNamespace(
+        default=SimpleNamespace(_schema=SimpleNamespace(arguments=arguments))
+    )
+
+    assert ascend_backend._operator_has_parameter(operator, "r1")
+    assert not ascend_backend._operator_has_parameter(operator, "rotary_mode")
     assert not ascend_backend._operator_has_parameter(object(), "rotary_mode")
 
 

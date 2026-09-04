@@ -66,8 +66,6 @@ class TestBackendSystem:
             assert {
                 "dequantize_int8_simple",
                 "dequantize_int8_simple_dtype",
-                "quantize_int8_rowwise",
-                "quantize_int8_tensorwise",
             }.issubset(ascend_caps)
 
     def test_backend_context_manager_override(self, small_tensor):

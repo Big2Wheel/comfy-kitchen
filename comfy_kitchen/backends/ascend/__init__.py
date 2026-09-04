@@ -26,7 +26,7 @@ __all__ = [
     "quantize_int8_tensorwise",
 ]
 
-_ASCEND_AVAILABLE = False
+_ASCEND_DEVICE_AVAILABLE = False
 _ASCEND_ERROR: str | None = None
 
 
@@ -44,22 +44,22 @@ try:
 
     if not torch.npu.is_available():
         _ASCEND_ERROR = "torch-npu is installed, but no Huawei Ascend device is available"
-    elif not hasattr(torch_npu, "npu_dynamic_quant"):
-        _ASCEND_ERROR = "torch-npu does not provide npu_dynamic_quant"
-    elif not hasattr(torch_npu, "npu_quantize"):
-        _ASCEND_ERROR = "torch-npu does not provide npu_quantize"
-    elif not _operator_has_parameter(torch_npu.npu_quantize, "div_mode"):
-        _ASCEND_ERROR = "torch-npu npu_quantize does not support div_mode"
     else:
-        _ASCEND_AVAILABLE = True
+        _ASCEND_DEVICE_AVAILABLE = True
 except ImportError as exc:
     _ASCEND_ERROR = f"torch-npu is not installed: {exc}"
 except Exception as exc:
     _ASCEND_ERROR = f"torch-npu initialization failed: {exc}"
 
 
+_ASCEND_QUANT_AVAILABLE = (
+    _ASCEND_DEVICE_AVAILABLE
+    and hasattr(torch_npu, "npu_dynamic_quant")
+    and hasattr(torch_npu, "npu_quantize")
+    and _operator_has_parameter(torch_npu.npu_quantize, "div_mode")
+)
 _ASCEND_ROPE_AVAILABLE = (
-    _ASCEND_AVAILABLE
+    _ASCEND_DEVICE_AVAILABLE
     and hasattr(torch_npu, "npu_rotary_mul")
     and _operator_has_parameter(torch_npu.npu_rotary_mul, "rotary_mode")
 )
@@ -216,23 +216,6 @@ def _build_constraints() -> dict[str, FunctionConstraints]:
     scale_values = frozenset({torch.float16, torch.bfloat16, torch.float32, float, int, str})
 
     constraints = {
-        "quantize_int8_tensorwise": FunctionConstraints(
-            params={
-                "x": ParamConstraint(dtypes=ascend_floats),
-                "scale": ParamConstraint(dtypes=scale_values),
-                "stochastic_rounding": ParamConstraint(dtypes=frozenset({int})),
-            },
-            default_devices=ascend_devices,
-            call_rules=(_validate_tensorwise_scale,),
-        ),
-        "quantize_int8_rowwise": FunctionConstraints(
-            params={
-                "x": ParamConstraint(dtypes=ascend_floats, shape_rules=(MinDims(2),)),
-                "stochastic_rounding": ParamConstraint(dtypes=frozenset({int})),
-            },
-            default_devices=ascend_devices,
-            call_rules=(_validate_deterministic_quantization,),
-        ),
         "dequantize_int8_simple": FunctionConstraints(
             params={
                 "q": ParamConstraint(dtypes=frozenset({torch.int8})),
@@ -250,6 +233,29 @@ def _build_constraints() -> dict[str, FunctionConstraints]:
             call_rules=(_validate_output_dtype,),
         ),
     }
+
+    if _ASCEND_QUANT_AVAILABLE:
+        constraints.update(
+            {
+                "quantize_int8_tensorwise": FunctionConstraints(
+                    params={
+                        "x": ParamConstraint(dtypes=ascend_floats),
+                        "scale": ParamConstraint(dtypes=scale_values),
+                        "stochastic_rounding": ParamConstraint(dtypes=frozenset({int})),
+                    },
+                    default_devices=ascend_devices,
+                    call_rules=(_validate_tensorwise_scale,),
+                ),
+                "quantize_int8_rowwise": FunctionConstraints(
+                    params={
+                        "x": ParamConstraint(dtypes=ascend_floats, shape_rules=(MinDims(2),)),
+                        "stochastic_rounding": ParamConstraint(dtypes=frozenset({int})),
+                    },
+                    default_devices=ascend_devices,
+                    call_rules=(_validate_deterministic_quantization,),
+                ),
+            }
+        )
 
     rope_tensors = {
         "freqs_cis": ParamConstraint(
@@ -363,7 +369,7 @@ def _build_constraints() -> dict[str, FunctionConstraints]:
     return constraints
 
 
-if _ASCEND_AVAILABLE:
+if _ASCEND_DEVICE_AVAILABLE:
     registry.register(
         name="ascend",
         module=__import__(__name__, fromlist=__all__),
