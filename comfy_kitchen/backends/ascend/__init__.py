@@ -29,6 +29,16 @@ __all__ = [
 _ASCEND_AVAILABLE = False
 _ASCEND_ERROR: str | None = None
 
+
+def _operator_has_parameter(operator: object, parameter: str) -> bool:
+    """Return whether the default torch operator schema contains a parameter."""
+    try:
+        arguments = operator.default._schema.arguments  # type: ignore[attr-defined]
+    except (AttributeError, RuntimeError):
+        return False
+    return any(argument.name == parameter for argument in arguments)
+
+
 try:
     import torch_npu
 
@@ -38,6 +48,8 @@ try:
         _ASCEND_ERROR = "torch-npu does not provide npu_dynamic_quant"
     elif not hasattr(torch_npu, "npu_quantize"):
         _ASCEND_ERROR = "torch-npu does not provide npu_quantize"
+    elif not _operator_has_parameter(torch_npu.npu_quantize, "div_mode"):
+        _ASCEND_ERROR = "torch-npu npu_quantize does not support div_mode"
     else:
         _ASCEND_AVAILABLE = True
 except ImportError as exc:
@@ -46,7 +58,11 @@ except Exception as exc:
     _ASCEND_ERROR = f"torch-npu initialization failed: {exc}"
 
 
-_ASCEND_ROPE_AVAILABLE = _ASCEND_AVAILABLE and hasattr(torch_npu, "npu_rotary_mul")
+_ASCEND_ROPE_AVAILABLE = (
+    _ASCEND_AVAILABLE
+    and hasattr(torch_npu, "npu_rotary_mul")
+    and _operator_has_parameter(torch_npu.npu_rotary_mul, "rotary_mode")
+)
 _ASCEND_RMS_ROPE_AVAILABLE = _ASCEND_ROPE_AVAILABLE and hasattr(torch_npu, "npu_rms_norm")
 
 if _ASCEND_ROPE_AVAILABLE:
