@@ -11,6 +11,7 @@ from __future__ import annotations
 import torch
 
 from comfy_kitchen.constraints import (
+    ExactDims,
     FunctionConstraints,
     MinDims,
     ParamConstraint,
@@ -43,6 +44,64 @@ except ImportError as exc:
     _ASCEND_ERROR = f"torch-npu is not installed: {exc}"
 except Exception as exc:
     _ASCEND_ERROR = f"torch-npu initialization failed: {exc}"
+
+
+_ASCEND_ROPE_AVAILABLE = _ASCEND_AVAILABLE and hasattr(torch_npu, "npu_rotary_mul")
+_ASCEND_RMS_ROPE_AVAILABLE = _ASCEND_ROPE_AVAILABLE and hasattr(torch_npu, "npu_rms_norm")
+
+if _ASCEND_ROPE_AVAILABLE:
+    from .rope import (
+        apply_rope,
+        apply_rope1,
+        apply_rope1_,
+        apply_rope_,
+        apply_rope_split_half,
+        apply_rope_split_half1,
+        apply_rope_split_half1_,
+        apply_rope_split_half_,
+        validate_apply_rope,
+        validate_apply_rope1,
+        validate_apply_rope_split_half,
+        validate_apply_rope_split_half1,
+    )
+
+    __all__ += [
+        "apply_rope",
+        "apply_rope1",
+        "apply_rope1_",
+        "apply_rope_",
+        "apply_rope_split_half",
+        "apply_rope_split_half1",
+        "apply_rope_split_half1_",
+        "apply_rope_split_half_",
+    ]
+
+if _ASCEND_RMS_ROPE_AVAILABLE:
+    from .rope import (
+        rms_rope,
+        rms_rope1,
+        rms_rope1_,
+        rms_rope_,
+        rms_rope_split_half,
+        rms_rope_split_half1,
+        rms_rope_split_half1_,
+        rms_rope_split_half_,
+        validate_rms_rope,
+        validate_rms_rope1,
+        validate_rms_rope_split_half,
+        validate_rms_rope_split_half1,
+    )
+
+    __all__ += [
+        "rms_rope",
+        "rms_rope1",
+        "rms_rope1_",
+        "rms_rope_",
+        "rms_rope_split_half",
+        "rms_rope_split_half1",
+        "rms_rope_split_half1_",
+        "rms_rope_split_half_",
+    ]
 
 
 _DTYPE_CODE_TO_DTYPE = {
@@ -140,7 +199,7 @@ def _build_constraints() -> dict[str, FunctionConstraints]:
     ascend_floats = frozenset({torch.float16, torch.bfloat16})
     scale_values = frozenset({torch.float16, torch.bfloat16, torch.float32, float, int, str})
 
-    return {
+    constraints = {
         "quantize_int8_tensorwise": FunctionConstraints(
             params={
                 "x": ParamConstraint(dtypes=ascend_floats),
@@ -175,6 +234,117 @@ def _build_constraints() -> dict[str, FunctionConstraints]:
             call_rules=(_validate_output_dtype,),
         ),
     }
+
+    rope_tensors = {
+        "freqs_cis": ParamConstraint(
+            dtypes=frozenset({torch.float16, torch.bfloat16, torch.float32}),
+            shape_rules=(ExactDims(6),),
+        )
+    }
+    if _ASCEND_ROPE_AVAILABLE:
+        constraints.update(
+            {
+                "apply_rope1": FunctionConstraints(
+                    params={
+                        "x": ParamConstraint(dtypes=ascend_floats, shape_rules=(ExactDims(4),)),
+                        **rope_tensors,
+                    },
+                    default_devices=ascend_devices,
+                    call_rules=(validate_apply_rope1,),
+                ),
+                "apply_rope": FunctionConstraints(
+                    params={
+                        "xq": ParamConstraint(dtypes=ascend_floats, shape_rules=(ExactDims(4),)),
+                        "xk": ParamConstraint(dtypes=ascend_floats, shape_rules=(ExactDims(4),)),
+                        **rope_tensors,
+                    },
+                    default_devices=ascend_devices,
+                    call_rules=(validate_apply_rope,),
+                ),
+                "apply_rope_split_half1": FunctionConstraints(
+                    params={
+                        "x": ParamConstraint(dtypes=ascend_floats, shape_rules=(ExactDims(4),)),
+                        **rope_tensors,
+                    },
+                    default_devices=ascend_devices,
+                    call_rules=(validate_apply_rope_split_half1,),
+                ),
+                "apply_rope_split_half": FunctionConstraints(
+                    params={
+                        "xq": ParamConstraint(dtypes=ascend_floats, shape_rules=(ExactDims(4),)),
+                        "xk": ParamConstraint(dtypes=ascend_floats, shape_rules=(ExactDims(4),)),
+                        **rope_tensors,
+                    },
+                    default_devices=ascend_devices,
+                    call_rules=(validate_apply_rope_split_half,),
+                ),
+            }
+        )
+
+    if _ASCEND_RMS_ROPE_AVAILABLE:
+        scale_constraint = ParamConstraint(
+            dtypes=frozenset({torch.float16, torch.bfloat16, torch.float32}),
+            shape_rules=(ExactDims(1),),
+        )
+        constraints.update(
+            {
+                "rms_rope1": FunctionConstraints(
+                    params={
+                        "x": ParamConstraint(dtypes=ascend_floats, shape_rules=(ExactDims(4),)),
+                        **rope_tensors,
+                        "scale": scale_constraint,
+                    },
+                    default_devices=ascend_devices,
+                    call_rules=(validate_rms_rope1,),
+                ),
+                "rms_rope": FunctionConstraints(
+                    params={
+                        "q": ParamConstraint(dtypes=ascend_floats, shape_rules=(ExactDims(4),)),
+                        "k": ParamConstraint(dtypes=ascend_floats, shape_rules=(ExactDims(4),)),
+                        **rope_tensors,
+                        "q_scale": scale_constraint,
+                        "k_scale": scale_constraint,
+                    },
+                    default_devices=ascend_devices,
+                    call_rules=(validate_rms_rope,),
+                ),
+                "rms_rope_split_half1": FunctionConstraints(
+                    params={
+                        "x": ParamConstraint(dtypes=ascend_floats, shape_rules=(ExactDims(4),)),
+                        **rope_tensors,
+                        "scale": scale_constraint,
+                    },
+                    default_devices=ascend_devices,
+                    call_rules=(validate_rms_rope_split_half1,),
+                ),
+                "rms_rope_split_half": FunctionConstraints(
+                    params={
+                        "q": ParamConstraint(dtypes=ascend_floats, shape_rules=(ExactDims(4),)),
+                        "k": ParamConstraint(dtypes=ascend_floats, shape_rules=(ExactDims(4),)),
+                        **rope_tensors,
+                        "q_scale": scale_constraint,
+                        "k_scale": scale_constraint,
+                        "rot_dim": ParamConstraint(dtypes=frozenset({int})),
+                    },
+                    default_devices=ascend_devices,
+                    call_rules=(validate_rms_rope_split_half,),
+                ),
+            }
+        )
+
+    for inplace_name, functional_name in {
+        "apply_rope_": "apply_rope",
+        "apply_rope1_": "apply_rope1",
+        "apply_rope_split_half_": "apply_rope_split_half",
+        "apply_rope_split_half1_": "apply_rope_split_half1",
+        "rms_rope_": "rms_rope",
+        "rms_rope1_": "rms_rope1",
+        "rms_rope_split_half_": "rms_rope_split_half",
+        "rms_rope_split_half1_": "rms_rope_split_half1",
+    }.items():
+        if functional_name in constraints:
+            constraints[inplace_name] = constraints[functional_name]
+    return constraints
 
 
 if _ASCEND_AVAILABLE:
