@@ -9,23 +9,25 @@ from .conftest import get_supported_devices
 
 torch_npu = pytest.importorskip("torch_npu")
 
-pytestmark = pytest.mark.skipif(not torch.npu.is_available(), reason="Ascend NPU required")
+pytestmark = pytest.mark.skipif(
+    not torch.npu.is_available(), reason="Huawei Ascend device required"
+)
 
 
 @pytest.fixture
-def npu_device():
+def ascend_device():
     torch.npu.set_device("npu:0")
     return torch.device("npu:0")
 
 
 @pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])
-def test_quantize_int8_rowwise_matches_eager(npu_device, dtype):
-    x = torch.randn(17, 257, device=npu_device, dtype=dtype)
+def test_quantize_int8_rowwise_matches_eager(ascend_device, dtype):
+    x = torch.randn(17, 257, device=ascend_device, dtype=dtype)
     x[0].zero_()
 
     with ck.use_backend("eager"):
         expected_q, expected_scale = ck.quantize_int8_rowwise(x)
-    with ck.use_backend("npu"):
+    with ck.use_backend("ascend"):
         actual_q, actual_scale = ck.quantize_int8_rowwise(x)
 
     assert actual_q.device.type == "npu"
@@ -39,12 +41,12 @@ def test_quantize_int8_rowwise_matches_eager(npu_device, dtype):
 
 
 @pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])
-def test_quantize_int8_tensorwise_recalculate_matches_eager(npu_device, dtype):
-    x = torch.randn(7, 11, 13, device=npu_device, dtype=dtype)
+def test_quantize_int8_tensorwise_recalculate_matches_eager(ascend_device, dtype):
+    x = torch.randn(7, 11, 13, device=ascend_device, dtype=dtype)
 
     with ck.use_backend("eager"):
         expected_q, expected_scale = ck.quantize_int8_tensorwise(x, scale="recalculate")
-    with ck.use_backend("npu"):
+    with ck.use_backend("ascend"):
         actual_q, actual_scale = ck.quantize_int8_tensorwise(x, scale="recalculate")
 
     assert actual_q.device.type == "npu"
@@ -55,22 +57,22 @@ def test_quantize_int8_tensorwise_recalculate_matches_eager(npu_device, dtype):
     torch.testing.assert_close(actual_scale, expected_scale, rtol=1e-3, atol=1e-6)
 
 
-def test_quantize_int8_tensorwise_uses_provided_scale(npu_device):
-    x = torch.randn(5, 9, device=npu_device, dtype=torch.bfloat16)
-    scale = torch.tensor(0.125, device=npu_device)
+def test_quantize_int8_tensorwise_uses_provided_scale(ascend_device):
+    x = torch.randn(5, 9, device=ascend_device, dtype=torch.bfloat16)
+    scale = torch.tensor(0.125, device=ascend_device)
 
     with ck.use_backend("eager"):
         expected_q, expected_scale = ck.quantize_int8_tensorwise(x, scale=scale)
-    with ck.use_backend("npu"):
+    with ck.use_backend("ascend"):
         actual_q, actual_scale = ck.quantize_int8_tensorwise(x, scale=scale)
 
     torch.testing.assert_close(actual_q, expected_q)
     torch.testing.assert_close(actual_scale, expected_scale)
 
 
-def test_dequantize_int8_stays_on_npu(npu_device):
-    x = torch.randn(19, 67, device=npu_device, dtype=torch.bfloat16)
-    with ck.use_backend("npu"):
+def test_dequantize_int8_stays_on_ascend(ascend_device):
+    x = torch.randn(19, 67, device=ascend_device, dtype=torch.bfloat16)
+    with ck.use_backend("ascend"):
         q, scale = ck.quantize_int8_rowwise(x)
         output = ck.dequantize_int8_simple(q, scale)
 
@@ -82,9 +84,9 @@ def test_dequantize_int8_stays_on_npu(npu_device):
 @pytest.mark.parametrize(
     "dtype_code,dtype", [(0, torch.float32), (1, torch.float16), (2, torch.bfloat16)]
 )
-def test_dequantize_int8_dtype_stays_on_npu(npu_device, dtype_code, dtype):
-    x = torch.randn(11, 31, device=npu_device, dtype=torch.bfloat16)
-    with ck.use_backend("npu"):
+def test_dequantize_int8_dtype_stays_on_ascend(ascend_device, dtype_code, dtype):
+    x = torch.randn(11, 31, device=ascend_device, dtype=torch.bfloat16)
+    with ck.use_backend("ascend"):
         q, scale = ck.quantize_int8_rowwise(x)
         output = torch.ops.comfy_kitchen.dequantize_int8_simple_dtype(q, scale, dtype_code)
 
@@ -93,24 +95,24 @@ def test_dequantize_int8_dtype_stays_on_npu(npu_device, dtype_code, dtype):
     torch.testing.assert_close(output, (q.float() * scale).to(dtype))
 
 
-def test_npu_is_selected_automatically(npu_device):
-    x = torch.randn(4, 32, device=npu_device, dtype=torch.bfloat16)
+def test_ascend_is_selected_automatically(ascend_device):
+    x = torch.randn(4, 32, device=ascend_device, dtype=torch.bfloat16)
     selected = registry.get_capable_backend(
         "quantize_int8_rowwise", {"x": x, "stochastic_rounding": 0}
     )
-    assert selected == "npu"
+    assert selected == "ascend"
 
 
-def test_get_supported_devices_includes_npu():
+def test_get_supported_devices_includes_torch_npu_device_type():
     assert "npu" in get_supported_devices("quantize_int8_rowwise")
 
 
-def test_npu_declines_unsupported_calls(npu_device):
-    fp32 = torch.randn(4, 32, device=npu_device, dtype=torch.float32)
+def test_ascend_declines_unsupported_calls(ascend_device):
+    fp32 = torch.randn(4, 32, device=ascend_device, dtype=torch.float32)
     with pytest.raises(NoCapableBackendError):
         registry.get_implementation(
             "quantize_int8_rowwise",
-            backend="npu",
+            backend="ascend",
             kwargs={"x": fp32, "stochastic_rounding": 0},
         )
 
@@ -118,13 +120,13 @@ def test_npu_declines_unsupported_calls(npu_device):
     with pytest.raises(NoCapableBackendError):
         registry.get_implementation(
             "quantize_int8_rowwise",
-            backend="npu",
+            backend="ascend",
             kwargs={"x": bf16, "stochastic_rounding": 123},
         )
 
 
-def test_unsupported_dtype_uses_device_side_eager_fallback(npu_device):
-    x = torch.randn(4, 32, device=npu_device, dtype=torch.float32)
+def test_unsupported_dtype_uses_device_side_eager_fallback(ascend_device):
+    x = torch.randn(4, 32, device=ascend_device, dtype=torch.float32)
     selected = registry.get_capable_backend(
         "quantize_int8_rowwise", {"x": x, "stochastic_rounding": 0}
     )

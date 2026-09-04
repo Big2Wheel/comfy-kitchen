@@ -1,10 +1,10 @@
 import torch
 
+from .backends import ascend as _ascend_backend  # noqa: F401
 from .backends import cuda as _cuda_backend
 
 # Import backends to trigger auto-registration
 from .backends import eager as _eager_backend  # noqa: F401
-from .backends import npu as _npu_backend  # noqa: F401
 from .backends import triton as _triton_backend  # noqa: F401
 from .backends.cuda import sol_attn_chunked  # chunked-producer form of sol_attn (HIP's below)
 from .backends.eager.quantization import DTYPE_TO_CODE
