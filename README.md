@@ -31,7 +31,7 @@ Fast kernel library for Diffusion inference with multiple compute backends.
 | `rms_rope_split_half1`      | ✓     | ✓    | ✓      | ✓   |     |
 | `quantize_int8_rowwise`     | ✓     | ✓    | ✓      | ✓   | ✓   |
 | `quantize_int8_tensorwise`  | ✓     | ✓    |        | ✓   | ✓   |
-| `quantize_and_rotate_rowwise` | ✓   | ✓    | ✓      | ✓   |     |
+| `quantize_and_rotate_rowwise` | ✓   | ✓    | ✓      | ✓   | ✓   |
 | `quantize_int8_convrot_weight` | ✓  | ✓    |        | ✓   |     |
 | `dequantize_int8_simple`    | ✓     | ✓    |        | ✓   | ✓   |
 | `dequantize_int8_simple_dtype` | ✓  | ✓    |        | ✓   | ✓   |
