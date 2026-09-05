@@ -237,11 +237,18 @@ def quantize_int8_tensorwise(
     if scale is None or (isinstance(scale, str) and scale == "recalculate"):
         abs_max = x.abs().max()
         output_scale = (abs_max.float() / 127.0).clamp(min=1e-30)
+        quantization_scale = output_scale
     else:
         output_scale = torch.as_tensor(scale, dtype=torch.float32, device=x.device)
+        scale_min = torch.finfo(x.dtype).tiny
+        quantization_scale = torch.where(
+            output_scale == 0,
+            torch.full_like(output_scale, scale_min),
+            output_scale,
+        )
     quantized = torch_npu.npu_quantize(
         x,
-        output_scale.reshape(1),
+        quantization_scale.reshape(1),
         zero_points=None,
         dtype=torch.qint8,
         axis=-1,
