@@ -138,6 +138,21 @@ def test_quantize_int8_tensorwise_uses_provided_scale(ascend_device):
     torch.testing.assert_close(actual_scale, expected_scale)
 
 
+@pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])
+def test_quantize_int8_tensorwise_handles_zero_scale(ascend_device, dtype):
+    x = torch.tensor([-1.0, 0.0, 1.0], device=ascend_device, dtype=dtype)
+    scale = torch.tensor(0.0, device=ascend_device)
+
+    with ck.use_backend("eager"):
+        expected_q, expected_scale = ck.quantize_int8_tensorwise(x, scale=scale)
+    with ck.use_backend("ascend"):
+        actual_q, actual_scale = ck.quantize_int8_tensorwise(x, scale=scale)
+
+    torch.testing.assert_close(actual_q, expected_q)
+    torch.testing.assert_close(actual_scale, expected_scale)
+    assert actual_scale.item() == 0.0
+
+
 def test_dequantize_int8_stays_on_ascend(ascend_device):
     x = torch.randn(19, 67, device=ascend_device, dtype=torch.bfloat16)
     with ck.use_backend("ascend"):
