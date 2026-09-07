@@ -135,6 +135,11 @@ def _validate_rotate_quant(kwargs) -> ValidationResult:
             "x",
             f"last dimension must be at least {_ROTATE_QUANT_MIN_FEATURES}",
         )
+    if x.shape[-1] > _ROTATE_QUANT_MAX_FEATURES:
+        return ValidationResult.fail(
+            "x",
+            f"last dimension must not exceed {_ROTATE_QUANT_MAX_FEATURES}",
+        )
     if x.shape[-1] % group_size != 0:
         return ValidationResult.fail(
             "group_size", f"{group_size} does not divide input features {x.shape[-1]}"

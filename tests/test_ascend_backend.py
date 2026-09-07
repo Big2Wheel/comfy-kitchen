@@ -105,6 +105,12 @@ def test_rotate_quant_backend_selection_and_declines(ascend_device):
     too_small = dict(call, x=x[:, :64])
     assert registry.get_capable_backend("quantize_and_rotate_rowwise", too_small) == "eager"
 
+    too_wide = dict(
+        call,
+        x=torch.randn(4, 16384, device=ascend_device, dtype=x.dtype),
+    )
+    assert registry.get_capable_backend("quantize_and_rotate_rowwise", too_wide) == "eager"
+
     stochastic = dict(call, stochastic_rounding=123)
     assert registry.get_capable_backend("quantize_and_rotate_rowwise", stochastic) == "eager"
 
@@ -532,6 +538,36 @@ def test_convrot_int8_linear_uses_separate_path_for_small_groups(ascend_device, 
         )
 
     assert output.shape == (7, 64)
+
+
+@requires_npu_quant_matmul
+@requires_npu_rotate_quant
+def test_convrot_int8_linear_uses_separate_path_above_fused_limit(ascend_device, monkeypatch):
+    def unexpected_rotate_quant(*args, **kwargs):
+        raise AssertionError("feature widths above the fused limit must use the separate path")
+
+    monkeypatch.setattr(torch_npu, "npu_rotate_quant", unexpected_rotate_quant)
+    input_features = 16384
+    x = torch.randn(2, input_features, device=ascend_device, dtype=torch.bfloat16)
+    weight = torch.randint(
+        -127,
+        128,
+        (64, input_features),
+        device=ascend_device,
+        dtype=torch.int8,
+    )
+    weight_scale = torch.rand(64, device=ascend_device, dtype=torch.float32) / 127
+
+    with ck.use_backend("ascend"):
+        output = ck.int8_linear(
+            x,
+            weight,
+            weight_scale,
+            convrot=True,
+            convrot_groupsize=256,
+        )
+
+    assert output.shape == (2, 64)
 
 
 @requires_npu_quant_matmul
