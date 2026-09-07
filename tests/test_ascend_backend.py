@@ -541,12 +541,12 @@ def test_convrot_int8_linear_uses_separate_path_for_small_groups(ascend_device, 
 
 
 @requires_npu_quant_matmul
-@requires_npu_rotate_quant
 def test_convrot_int8_linear_uses_separate_path_above_fused_limit(ascend_device, monkeypatch):
     def unexpected_rotate_quant(*args, **kwargs):
         raise AssertionError("feature widths above the fused limit must use the separate path")
 
-    monkeypatch.setattr(torch_npu, "npu_rotate_quant", unexpected_rotate_quant)
+    if hasattr(torch_npu, "npu_rotate_quant"):
+        monkeypatch.setattr(torch_npu, "npu_rotate_quant", unexpected_rotate_quant)
     input_features = 16384
     x = torch.randn(2, input_features, device=ascend_device, dtype=torch.bfloat16)
     weight = torch.randint(
