@@ -20,6 +20,10 @@ requires_npu_rotate_quant = pytest.mark.skipif(
     not hasattr(torch_npu, "npu_rotate_quant"),
     reason="torch-npu with npu_rotate_quant is required",
 )
+requires_ascend_w4a4 = pytest.mark.skipif(
+    not hasattr(torch_npu, "npu_quant_matmul") or not hasattr(torch_npu, "npu_rotate_quant"),
+    reason="torch-npu with INT4 rotate quant and quant matmul is required",
+)
 
 pytestmark = pytest.mark.skipif(
     not torch.npu.is_available(), reason="Huawei Ascend device required"
@@ -106,6 +110,146 @@ def test_rotate_quant_backend_selection_and_declines(ascend_device):
 
     wrong_shape = dict(call, H=h[:16, :16])
     assert registry.get_capable_backend("quantize_and_rotate_rowwise", wrong_shape) == "eager"
+
+
+@requires_ascend_w4a4
+@pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16, torch.float32])
+def test_convrot_w4a4_linear_matches_eager(ascend_device, dtype):
+    torch.manual_seed(123)
+    x = torch.randn(17, 256, device=ascend_device, dtype=dtype) * 0.25
+    x[0].zero_()
+    weight = torch.randn(128, 256, device=ascend_device, dtype=dtype) * 0.25
+    bias = torch.randn(128, device=ascend_device, dtype=dtype) * 0.1
+
+    with ck.use_backend("eager"):
+        qweight, wscales = ck.quantize_convrot_w4a4_weight(
+            weight,
+            convrot_groupsize=64,
+        )
+        expected = ck.convrot_w4a4_linear(
+            x,
+            qweight,
+            wscales,
+            bias=bias,
+            convrot_groupsize=64,
+        )
+    with ck.use_backend("ascend"):
+        actual = ck.convrot_w4a4_linear(
+            x,
+            qweight,
+            wscales,
+            bias=bias,
+            convrot_groupsize=64,
+        )
+
+    assert actual.shape == expected.shape
+    assert actual.dtype == dtype
+    assert actual.device.type == "npu"
+    torch.testing.assert_close(actual[0], bias, rtol=0, atol=0)
+    relative_l2 = (actual.float() - expected.float()).norm() / expected.float().norm()
+    cosine = torch.nn.functional.cosine_similarity(
+        actual.float().flatten(),
+        expected.float().flatten(),
+        dim=0,
+    )
+    assert relative_l2 < 0.05
+    assert cosine > 0.998
+
+
+@requires_ascend_w4a4
+def test_convrot_w4a4_linear_uses_packed_npu_ops(ascend_device, monkeypatch):
+    calls = {"rotate_quant": 0, "quant_matmul": 0, "shares_weight": False}
+    original_rotate_quant = torch_npu.npu_rotate_quant
+    original_quant_matmul = torch_npu.npu_quant_matmul
+
+    def counted_rotate_quant(*args, **kwargs):
+        calls["rotate_quant"] += 1
+        output = original_rotate_quant(*args, **kwargs)
+        assert output[0].dtype == torch.int32
+        return output
+
+    qweight = torch.randint(-128, 128, (128, 128), device=ascend_device, dtype=torch.int8)
+
+    def counted_quant_matmul(x1, x2, *args, **kwargs):
+        calls["quant_matmul"] += 1
+        calls["shares_weight"] = (
+            x2.untyped_storage().data_ptr() == qweight.untyped_storage().data_ptr()
+        )
+        assert x1.dtype == torch.int32
+        assert x2.dtype == torch.int32
+        return original_quant_matmul(x1, x2, *args, **kwargs)
+
+    monkeypatch.setattr(torch_npu, "npu_rotate_quant", counted_rotate_quant)
+    monkeypatch.setattr(torch_npu, "npu_quant_matmul", counted_quant_matmul)
+    x = torch.randn(7, 256, device=ascend_device, dtype=torch.bfloat16)
+    wscales = torch.rand(128, device=ascend_device, dtype=torch.float32) / 7
+
+    with ck.use_backend("ascend"):
+        output = ck.convrot_w4a4_linear(
+            x,
+            qweight,
+            wscales,
+            convrot_groupsize=64,
+        )
+
+    assert output.shape == (7, 128)
+    assert calls == {"rotate_quant": 1, "quant_matmul": 1, "shares_weight": True}
+
+
+@requires_ascend_w4a4
+def test_convrot_w4a4_linear_supports_features_above_fused_limit(ascend_device, monkeypatch):
+    torch.manual_seed(321)
+    input_features = 16384
+    x = torch.randn(2, input_features, device=ascend_device, dtype=torch.bfloat16) * 0.1
+    weight = torch.randn(128, input_features, device=ascend_device, dtype=torch.bfloat16) * 0.1
+
+    with ck.use_backend("eager"):
+        qweight, wscales = ck.quantize_convrot_w4a4_weight(weight)
+        expected = ck.convrot_w4a4_linear(x, qweight, wscales)
+
+    def unexpected_fused_call(*args, **kwargs):
+        raise AssertionError("fused rotate-quant must not be used above its K limit")
+
+    monkeypatch.setattr(torch_npu, "npu_rotate_quant", unexpected_fused_call)
+    with ck.use_backend("ascend"):
+        actual = ck.convrot_w4a4_linear(x, qweight, wscales)
+
+    relative_l2 = (actual.float() - expected.float()).norm() / expected.float().norm()
+    cosine = torch.nn.functional.cosine_similarity(
+        actual.float().flatten(), expected.float().flatten(), dim=0
+    )
+    assert relative_l2 < 0.05
+    assert cosine > 0.998
+
+
+@requires_ascend_w4a4
+def test_convrot_w4a4_backend_selection_and_declines(ascend_device):
+    x = torch.randn(4, 256, device=ascend_device, dtype=torch.bfloat16)
+    qweight = torch.randint(-128, 128, (128, 128), device=ascend_device, dtype=torch.int8)
+    wscales = torch.rand(128, device=ascend_device, dtype=torch.float32)
+    call = {
+        "x": x,
+        "qweight": qweight,
+        "wscales": wscales,
+        "bias": None,
+        "convrot_groupsize": 64,
+        "quant_group_size": 64,
+        "linear_dtype": "int4",
+    }
+    assert registry.get_capable_backend("convrot_w4a4_linear", call) == "ascend"
+
+    assert (
+        registry.get_capable_backend("convrot_w4a4_linear", dict(call, linear_dtype="int8"))
+        == "eager"
+    )
+    assert (
+        registry.get_capable_backend("convrot_w4a4_linear", dict(call, quant_group_size=32))
+        == "eager"
+    )
+    assert (
+        registry.get_capable_backend("convrot_w4a4_linear", dict(call, qweight=qweight[:127]))
+        == "eager"
+    )
 
 
 @pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])
