@@ -16,6 +16,8 @@ from comfy_kitchen.backends._activations import (
 from comfy_kitchen.backends._activations import (
     input_act_width as _input_act_width,
 )
+from comfy_kitchen.backends.eager.convrot_w4a4 import quantize_signed_int4_rowwise
+from comfy_kitchen.backends.eager.svdquant import _unpack_int4_row_major
 from comfy_kitchen.constraints import (
     ExactDims,
     FunctionConstraints,
@@ -67,11 +69,12 @@ _DTYPE_CODE_TO_DTYPE = {
 }
 
 _ROTATE_QUANT_DST_DTYPE_INT8 = 1
-_ROTATE_QUANT_DST_DTYPE_INT4 = 16
 _ROTATE_QUANT_MIN_FEATURES = 128
 _ROTATE_QUANT_MAX_FEATURES = 16000
 _ROTATE_QUANT_MIN_GROUP_SIZE = 16
 _INT4_QUANT_GROUP_SIZE = 64
+# Signed A4 is clamped to [-7, 7]; packed W4 can contain -8.
+_INT4_MAX_ACCUMULATION_FEATURES = torch.iinfo(torch.int32).max // (7 * 8)
 
 
 def _validate_deterministic_quantization(kwargs) -> ValidationResult:
@@ -185,22 +188,6 @@ def _npu_rotate_quant(
     )
 
 
-def _rotate_and_quantize_int4(
-    x: torch.Tensor,
-    hadamard: torch.Tensor,
-    group_size: int,
-) -> tuple[torch.Tensor, torch.Tensor]:
-    """Rotate and pack A4 on NPU when fused rotate-quant cannot tile K."""
-    rotated = _rotate_activation(x, hadamard, group_size)
-    absmax = rotated.abs().amax(dim=-1, keepdim=True).clamp(min=1e-10)
-    scale = absmax / 7.0
-    quantized = torch.round(rotated / scale).clamp(-8, 7).to(torch.int8)
-    low = quantized[:, 0::2] & 0x0F
-    high = (quantized[:, 1::2] & 0x0F) << 4
-    packed = (low | high).to(torch.int8).contiguous().view(torch.int32)
-    return packed, scale.reshape(-1).to(torch.float32)
-
-
 def _validate_int8_linear(kwargs) -> ValidationResult:
     x = kwargs.get("x")
     weight = kwargs.get("weight")
@@ -288,6 +275,8 @@ def _validate_convrot_w4a4_linear(kwargs) -> ValidationResult:
 
     input_features = x.shape[-1]
     output_features = qweight.shape[0]
+    if input_features > _INT4_MAX_ACCUMULATION_FEATURES:
+        return ValidationResult.fail("x", "feature width can overflow the INT32 accumulator")
     if input_features != qweight.shape[-1] * 2:
         return ValidationResult.fail(
             "qweight",
@@ -460,11 +449,14 @@ def convrot_w4a4_linear(
     quant_group_size: int = _INT4_QUANT_GROUP_SIZE,
     linear_dtype: str = "int4",
 ) -> torch.Tensor:
-    """Run ConvRot A4W4 linear on Ascend NPU.
+    """Run ConvRot W4A4 with reference preprocessing and integer accumulation.
 
-    Comfy Kitchen packs two signed INT4 values in each byte. That byte order
-    matches the eight-values-per-int32 layout consumed by npu_quant_matmul, so
-    the weight conversion is a zero-copy dtype view.
+    Do not cast FP32 activations before rotation/quantization: even small
+    perturbations change the rounded A4 codes. The scaled packed-A4W4 kernel
+    also narrows output to FP16/BF16. Instead, unpack the same A4/W4 codes to
+    INT8 and request an INT32 accumulator without per-token scaling, then
+    reproduce eager's cast, scale and bias order. This intentionally trades
+    packed-kernel performance for the reference's numerical behavior.
     """
     if linear_dtype != "int4":
         raise ValueError(f"Ascend A4W4 requires linear_dtype='int4', got {linear_dtype!r}")
@@ -472,36 +464,26 @@ def convrot_w4a4_linear(
         raise ValueError(f"Ascend A4W4 requires quant_group_size {_INT4_QUANT_GROUP_SIZE}")
 
     original_shape = x.shape
-    compute_dtype = torch.bfloat16 if x.dtype == torch.float32 else x.dtype
-    x_2d = x.reshape(-1, x.shape[-1]).to(dtype=compute_dtype).contiguous()
+    x_2d = x.reshape(-1, x.shape[-1]).contiguous()
     qweight = qweight.to(device=x.device).contiguous()
-    wscales = wscales.to(device=x.device, dtype=torch.float32).reshape(-1).contiguous()
     hadamard = _build_hadamard(
         convrot_groupsize,
         device=x.device,
-        dtype=compute_dtype,
+        dtype=x.dtype,
     )
-    if x_2d.shape[-1] <= _ROTATE_QUANT_MAX_FEATURES:
-        quantized_x, activation_scale = _npu_rotate_quant(
-            x_2d,
-            hadamard.contiguous(),
-            dst_dtype=_ROTATE_QUANT_DST_DTYPE_INT4,
-        )
-    else:
-        quantized_x, activation_scale = _rotate_and_quantize_int4(
-            x_2d,
-            hadamard,
-            convrot_groupsize,
-        )
-    packed_weight = qweight.view(torch.int32)
+    rotated = _rotate_activation(x_2d, hadamard, convrot_groupsize)
+    packed_x, activation_scale = quantize_signed_int4_rowwise(rotated)
+    quantized_x = _unpack_int4_row_major(packed_x).contiguous()
+    quantized_weight = _unpack_int4_row_major(qweight).contiguous()
     result = torch_npu.npu_quant_matmul(
         quantized_x,
-        packed_weight.t(),
-        wscales,
-        pertoken_scale=activation_scale.reshape(-1).contiguous(),
-        output_dtype=torch.float16,
+        quantized_weight.t(),
+        torch.ones(qweight.shape[0], device=x.device, dtype=torch.float32),
+        output_dtype=torch.int32,
     )
     result = result.to(x.dtype)
+    result = result * activation_scale.to(x.dtype).reshape(-1, 1)
+    result = result * wscales.to(device=x.device, dtype=x.dtype).reshape(1, -1)
     if bias is not None:
         result = result + bias.to(device=x.device, dtype=x.dtype).reshape(1, -1)
     return result.reshape(*original_shape[:-1], qweight.shape[0])
@@ -578,7 +560,7 @@ def _build_constraints() -> dict[str, FunctionConstraints]:
             default_devices=ascend_devices,
             call_rules=(_validate_rotate_quant,),
         )
-    if _ASCEND_ROTATE_QUANT_AVAILABLE and _ASCEND_QUANT_MATMUL_AVAILABLE:
+    if _ASCEND_QUANT_MATMUL_AVAILABLE:
         constraints["convrot_w4a4_linear"] = FunctionConstraints(
             params={
                 "x": ParamConstraint(dtypes=ascend_linear_floats, shape_rules=(MinDims(2),)),
