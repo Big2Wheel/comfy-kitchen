@@ -1,5 +1,6 @@
 import torch
 
+from .allocation import set_allocation_context
 from .backends import ascend as _ascend_backend  # noqa: F401
 from .backends import cuda as _cuda_backend
 
@@ -112,6 +113,7 @@ __all__ = [
     "swap_nibbles",
     "to_blocked",
     "from_blocked",
+    "set_allocation_context",
     # Backend configuration
     "list_backends",
     "set_backend_priority",
