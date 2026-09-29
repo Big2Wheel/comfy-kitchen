@@ -559,7 +559,9 @@ def convrot_w4a4_linear(
 
     original_shape = x.shape
     x_2d = x.reshape(-1, x.shape[-1]).contiguous()
-    qweight = qweight.to(device=x.device).contiguous()
+    qweight = qweight.to(device=x.device)
+    if weight_cache is None:
+        qweight = qweight.contiguous()
     hadamard = _build_hadamard(
         convrot_groupsize,
         device=x.device,

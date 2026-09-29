@@ -81,8 +81,10 @@ class W4A4WeightCache:
             or weight.device.type not in {"cpu", "npu"}
         ):
             return _unpack_int4_row_major(weight).contiguous()
-        if weight.dtype != torch.int8 or weight.ndim != 2:
-            raise ValueError("Expected a two-dimensional packed INT4 tensor stored as int8")
+        if weight.dtype not in (torch.int8, torch.uint8) or weight.ndim != 2:
+            raise ValueError(
+                "Expected a two-dimensional packed INT4 tensor stored as int8 or uint8"
+            )
         stream = None
         if weight.device.type == "npu":
             if torch.npu.is_current_stream_capturing():

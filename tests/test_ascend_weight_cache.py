@@ -17,9 +17,10 @@ def test_invalid_budget(budget):
 
 
 @pytest.mark.parametrize("inference", [False, True])
-def test_mutation_and_identity(inference):
+@pytest.mark.parametrize("packed_dtype", [torch.int8, torch.uint8])
+def test_mutation_and_identity(inference, packed_dtype):
     with torch.inference_mode(inference):
-        source = torch.randint(-128, 128, (4, 8), dtype=torch.int8)
+        source = torch.randint(-128, 128, (4, 8), dtype=torch.int8).to(packed_dtype)
         with W4A4WeightCache(1024) as cache:
             first = cache._unpack(source)
             assert cache._unpack(source) is first
@@ -199,15 +200,23 @@ def test_public_dispatch_preserves_eager_selection():
         assert cache.hits == cache.misses == 0
 
 
-def test_public_dispatch_npu_cache():
+@pytest.mark.parametrize("packed_dtype", [torch.int8, torch.uint8])
+@pytest.mark.parametrize("strided", [False, True])
+def test_public_dispatch_npu_cache(packed_dtype, strided):
     pytest.importorskip("torch_npu")
     if not torch.npu.is_available():
         pytest.skip("Ascend NPU required")
     x = torch.randn(2, 256, device="npu")
-    weight = torch.randint(-128, 128, (32, 128), device="npu", dtype=torch.int8)
+    storage = torch.randint(0, 256, (32, 256), device="npu", dtype=torch.int32).to(packed_dtype)
+    weight = storage[:, ::2] if strided else storage[:, :128].contiguous()
     scale = torch.ones(32, device="npu")
     with W4A4WeightCache(1024 * 1024) as cache:
         expected = convrot_w4a4_linear(x, weight, scale)
         assert torch.equal(expected, convrot_w4a4_linear(x, weight, scale, weight_cache=cache))
         assert torch.equal(expected, convrot_w4a4_linear(x, weight, scale, weight_cache=cache))
         assert cache.hits == 1
+        assert cache.misses == 1
+        weight.fill_(17)
+        expected = convrot_w4a4_linear(x, weight, scale)
+        assert torch.equal(expected, convrot_w4a4_linear(x, weight, scale, weight_cache=cache))
+        assert cache.misses == 2
